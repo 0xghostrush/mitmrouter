@@ -2,9 +2,9 @@
 
 # VARIABLES
 BR_IFACE="br0"
-WAN_IFACE="eth0"
+WAN_IFACE="enx6c6e07014a4f"
 LAN_IFACE="eth1"
-WIFI_IFACE="wlan0"
+WIFI_IFACE="wlx00c0caade10a"
 WIFI_SSID="setec_astronomy"
 WIFI_PASSWORD="mypassword"
 
@@ -27,8 +27,10 @@ SCRIPT_RELATIVE_DIR=$(dirname "${BASH_SOURCE[0]}")
 cd $SCRIPT_RELATIVE_DIR
 
 echo "== stop router services"
-sudo killall wpa_supplicant
-sudo killall dnsmasq
+sudo systemctl stop wpa_supplicant
+sudo killall wpa_supplicant 2>/dev/null
+sudo killall dnsmasq 2>/dev/null
+sudo killall hostapd 2>/dev/null
 
 echo "== reset all network interfaces"
 sudo ifconfig $LAN_IFACE 0.0.0.0
@@ -40,6 +42,9 @@ sudo ifconfig $WIFI_IFACE down
 sudo brctl delbr $BR_IFACE
 
 if [ $1 = "up" ]; then
+
+    echo "== tell NetworkManager to ignore WiFi interface"
+    sudo nmcli dev set $WIFI_IFACE managed no 2>/dev/null
 
     echo "== create dnsmasq config file"
     echo "interface=${BR_IFACE}" > $DNSMASQ_CONF
@@ -62,6 +67,7 @@ if [ $1 = "up" ]; then
     
     echo "== bring up interfaces and bridge"
     sudo ifconfig $WIFI_IFACE up
+    sleep 2  # Allow WiFi interface to fully initialize
     sudo ifconfig $WAN_IFACE up
     sudo ifconfig $LAN_IFACE up
     sudo brctl addbr $BR_IFACE
@@ -69,13 +75,16 @@ if [ $1 = "up" ]; then
     sudo ifconfig $BR_IFACE up
     
     echo "== setup iptables"
+    echo "== enable IP forwarding"
+    sudo sysctl -w net.ipv4.ip_forward=1
+
     sudo iptables --flush
     sudo iptables -t nat --flush
     sudo iptables -t nat -A POSTROUTING -o $WAN_IFACE -j MASQUERADE
     sudo iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
     sudo iptables -A FORWARD -i $BR_IFACE -o $WAN_IFACE -j ACCEPT
     # optional mitm rules
-    #sudo iptables -t nat -A PREROUTING -i $BR_IFACE -p tcp -d 1.2.3.4 --dport 443 -j REDIRECT --to-ports 8081
+    #sudo iptables -t nat -A PREROUTING -i $BR_IFACE -p tcp  --dport 443 -j REDIRECT --to-ports 9000
     
     
     echo "== setting static IP on bridge interface"
@@ -88,3 +97,18 @@ if [ $1 = "up" ]; then
     sudo hostapd $HOSTAPD_CONF
 fi
 
+if [ $1 = "down" ]; then
+    echo "== restore NetworkManager control of WiFi interface"
+    sudo nmcli dev set $WIFI_IFACE managed yes 2>/dev/null
+    sudo systemctl start wpa_supplicant
+
+    echo "== flush iptables rules"
+    sudo iptables --flush
+    sudo iptables -t nat --flush
+
+    echo "== disable IP forwarding"
+    sudo sysctl -w net.ipv4.ip_forward=0
+
+    echo "== remove temp config files"
+    rm -f $DNSMASQ_CONF $HOSTAPD_CONF
+fi
