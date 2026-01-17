@@ -27,3 +27,21 @@ The `./mitmrouter.sh up` command will bring down all the linux router components
 The `./mitmrouter.sh down` command will bring down all the linux router components
 
 
+
+## Changes to original script
+
+- stops router services
+- tells NetworkManager to ignore the $WIFI_IFACE
+- add a two second sleep to wait for $WIFI_IFACE to initialise
+- up
+    - enable ip forwarding
+- down
+    - restore NetworkManger control of $WIFI_IFACE
+    - flush iptables rules
+    - disable IP forwarding
+    - remove temp config files
+
+
+
+
+
